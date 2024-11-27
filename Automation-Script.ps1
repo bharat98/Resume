@@ -1,4 +1,4 @@
-# Convert Word to PDF
+﻿# Convert Word to PDF
 try {
     $word = New-Object -ComObject Word.Application
     $word.Visible = $false
@@ -34,13 +34,14 @@ try {
     $repo = "Resume"
     $branch = "main"
     $filePath = "Bharat Gurbaxani resume.pdf"
-    $currentDate = Get-Date -Format "dd-MMM-yyyy"
+    $currentDate = Get-Date -Format "dd-MMM-yyyy-HHmmss"
     $olderVersionPath = "Older version/Bharat Gurbaxani resume $currentDate.pdf"
     $commitMessage = "Resume Update: $currentDate"
 
     # Your GitHub Personal Access Token
     $token = '' # Replace with your actual token or use a secure method to retrieve it
 
+    
     # Read the PDF file content
     $fileContent = [System.Convert]::ToBase64String([System.IO.File]::ReadAllBytes($pdfPath))
 
@@ -52,7 +53,13 @@ try {
 
     # Get the current file content and SHA
     $uri = "https://api.github.com/repos/$owner/$repo/contents/$filePath"
-    $existingFile = Invoke-RestMethod -Uri $uri -Headers $headers -Method Get -ErrorAction SilentlyContinue
+    $existingFile = $null
+    try {
+        $existingFile = Invoke-RestMethod -Uri $uri -Headers $headers -Method Get
+        Write-Host "Existing file found. SHA: $($existingFile.sha)"
+    } catch {
+        Write-Host "No existing file found or error occurred: $_"
+    }
 
     if ($existingFile) {
         # Move the existing file to "Older version" folder
@@ -61,9 +68,15 @@ try {
             content = $existingFile.content
             branch = $branch
             path = $olderVersionPath
+            sha = $existingFile.sha
         } | ConvertTo-Json
 
-        Invoke-RestMethod -Uri "https://api.github.com/repos/$owner/$repo/contents/$olderVersionPath" -Method Put -Headers $headers -Body $moveBody
+        try {
+            Invoke-RestMethod -Uri "https://api.github.com/repos/$owner/$repo/contents/$olderVersionPath" -Method Put -Headers $headers -Body $moveBody
+            Write-Host "Existing file moved to Older version folder"
+        } catch {
+            Write-Host "Error moving existing file: $_"
+        }
 
         # Delete the original file
         $deleteBody = @{
@@ -72,7 +85,12 @@ try {
             branch = $branch
         } | ConvertTo-Json
 
-        Invoke-RestMethod -Uri $uri -Method Delete -Headers $headers -Body $deleteBody
+        try {
+            Invoke-RestMethod -Uri $uri -Method Delete -Headers $headers -Body $deleteBody
+            Write-Host "Original file deleted"
+        } catch {
+            Write-Host "Error deleting original file: $_"
+        }
     }
 
     # Upload the new file
@@ -80,11 +98,29 @@ try {
         message = $commitMessage
         content = $fileContent
         branch = $branch
-    } | ConvertTo-Json
+    }
 
-    $response = Invoke-RestMethod -Uri $uri -Method Put -Headers $headers -Body $uploadBody
+    if ($existingFile) {
+        $uploadBody.sha = $existingFile.sha
+        Write-Host "Including SHA in upload request: $($existingFile.sha)"
+    }
 
-    Write-Host "PDF updated and old version moved to 'Older version' folder."
+    $uploadBodyJson = $uploadBody | ConvertTo-Json
+
+    try {
+        $response = Invoke-RestMethod -Uri $uri -Method Put -Headers $headers -Body $uploadBodyJson
+        Write-Host "New file uploaded successfully"
+    } catch {
+        Write-Host "Error uploading new file: $_"
+        Write-Host "Response: $($_.Exception.Response.GetResponseStream())"
+        $reader = New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())
+        $reader.BaseStream.Position = 0
+        $reader.DiscardBufferedData()
+        $responseBody = $reader.ReadToEnd()
+        Write-Host $responseBody
+    }
+
+    Write-Host "PDF update process completed."
 }
 catch {
     Write-Host "An error occurred during GitHub upload: $_"
