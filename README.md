@@ -78,7 +78,7 @@ To use or modify this automation process, ensure you have:
 2. Update your local Word document (`Bharat Gurbaxani Resume.docx`) with any changes.
 3. Run the PowerShell script:
    ```
-   .\UpdateResume.ps1
+   .\AutomationScript.ps1
    ```
 4. The script will:
    - Convert your updated `.docx` file into a `.pdf`.
